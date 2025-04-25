@@ -18,7 +18,7 @@ class DatabaseConnection:
                 password=self.password,
                 database=self.database
             )
-            self.cursor = self.connection.cursor(dictionary=True)
+            self.cursor = self.connection.cursor(buffered=True)
             return True
         except Error as e:
             print(f"连接数据库时出错: {e}")
@@ -38,7 +38,10 @@ class DatabaseConnection:
             self.cursor.execute(query, params or ())
             
             if query.strip().upper().startswith(('SELECT', 'SHOW', 'DESCRIBE')):
-                return self.cursor.fetchall()
+                columns = [column[0] for column in self.cursor.description]
+                result = self.cursor.fetchall()
+                # 手动将结果转换为字典列表
+                return [dict(zip(columns, row)) for row in result]
             else:
                 self.connection.commit()
                 return self.cursor.rowcount
@@ -74,15 +77,20 @@ class DatabaseConnection:
             
             # 获取所有结果集
             results = []
-            result = self.cursor.fetchall()
-            if result:
-                results.append(result)
+            # 手动将结果转换为字典列表
+            if self.cursor.description:
+                columns = [column[0] for column in self.cursor.description]
+                result = self.cursor.fetchall()
+                if result:
+                    results.append([dict(zip(columns, row)) for row in result])
             
             # 处理可能的多个结果集
             while self.cursor.nextset():
-                result = self.cursor.fetchall()
-                if result:
-                    results.append(result)
+                if self.cursor.description:
+                    columns = [column[0] for column in self.cursor.description]
+                    result = self.cursor.fetchall()
+                    if result:
+                        results.append([dict(zip(columns, row)) for row in result])
             
             # 获取输出参数的值
             output_params = {}
@@ -90,9 +98,11 @@ class DatabaseConnection:
                 if isinstance(param, str) and param.startswith('@'):
                     var_name = param[1:]  # 去掉@符号
                     self.cursor.execute(f"SELECT @{var_name} AS value")
-                    output_value = self.cursor.fetchone()
-                    if output_value:
-                        output_params[var_name] = output_value['value']
+                    if self.cursor.description:
+                        columns = [column[0] for column in self.cursor.description]
+                        output_value = self.cursor.fetchone()
+                        if output_value:
+                            output_params[var_name] = dict(zip(columns, output_value))['value']
             
             # 将输出参数添加到结果中
             if output_params:
